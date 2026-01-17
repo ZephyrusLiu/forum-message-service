@@ -1,2 +1,1 @@
-# GroupProject-Messages
-GroupProject-Message
+# forum-message-service
