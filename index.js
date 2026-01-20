@@ -14,7 +14,7 @@ const startServer = async () => {
     
     app.listen(PORT, () => {
       console.log(`[${new Date().toISOString()}] [INFO] Message Service is running on port ${PORT}`);
-      console.log(`[${new Date().toISOString()}] [INFO] Health check available at: http://localhost:${PORT}/health`);
+      console.log(`[${new Date().toISOString()}] [INFO] Health check available at: http://localhost:${PORT}/message-service/health`);
     });
   } catch (error) {
     console.error(`[${new Date().toISOString()}] [ERROR] Failed to start server: ${error.message}`);
