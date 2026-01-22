@@ -1,5 +1,6 @@
 const Message = require('../models/message.model');
 const { ValidationError, DatabaseConnectionError } = require('../utils/customErrors');
+const { publishContactCreatedEvent } = require('../utils/messagePublisher');
 
 const createContactMessage = async (messageData) => {
   try {
@@ -20,7 +21,7 @@ const createContactMessage = async (messageData) => {
     
     console.log(`[${new Date().toISOString()}] [INFO] Contact message created successfully - MessageId: ${savedMessage._id.toString()}, Email: ${email}`);
     
-    return {
+    const messageResult = {
       messageId: savedMessage._id.toString(),
       email: savedMessage.email,
       subject: savedMessage.subject,
@@ -29,6 +30,20 @@ const createContactMessage = async (messageData) => {
       status: savedMessage.status,
       dateCreated: savedMessage.dateCreated
     };
+
+    try {
+      await publishContactCreatedEvent({
+        messageId: messageResult.messageId,
+        subject: messageResult.subject,
+        email: messageResult.email,
+        message: messageResult.message,
+        dateCreated: messageResult.dateCreated
+      });
+    } catch (mqError) {
+      console.error(`[${new Date().toISOString()}] [ERROR] Failed to publish event to RabbitMQ, but message saved: ${mqError.message}`);
+    }
+    
+    return messageResult;
   } catch (error) {
     if (error.name === 'ValidationError') {
       const validationMessage = Object.values(error.errors)
