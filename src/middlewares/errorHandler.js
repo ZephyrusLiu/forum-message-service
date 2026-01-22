@@ -1,4 +1,4 @@
-const { DatabaseConnectionError, ValidationError, NotFoundError } = require('../utils/customErrors');
+const { DatabaseConnectionError, ValidationError, NotFoundError, UnauthorizedError, ForbiddenError } = require('../utils/customErrors');
 
 const errorHandler = (err, req, res, next) => {
   let error = { ...err };
@@ -52,6 +52,26 @@ const errorHandler = (err, req, res, next) => {
       error: 'Not Found',
       message: notFoundError.message,
       status: notFoundError.statusCode
+    });
+  }
+
+  if (error instanceof UnauthorizedError || err instanceof UnauthorizedError) {
+    const unauthorizedError = error instanceof UnauthorizedError ? error : err;
+    console.log(`[${new Date().toISOString()}] [WARN] UnauthorizedError - Status: ${unauthorizedError.statusCode}, Message: ${unauthorizedError.message}`);
+    return res.status(unauthorizedError.statusCode).json({
+      error: 'Unauthorized',
+      message: unauthorizedError.message,
+      status: unauthorizedError.statusCode
+    });
+  }
+
+  if (error instanceof ForbiddenError || err instanceof ForbiddenError) {
+    const forbiddenError = error instanceof ForbiddenError ? error : err;
+    console.log(`[${new Date().toISOString()}] [WARN] ForbiddenError - Status: ${forbiddenError.statusCode}, Message: ${forbiddenError.message}`);
+    return res.status(forbiddenError.statusCode).json({
+      error: 'Forbidden',
+      message: forbiddenError.message,
+      status: forbiddenError.statusCode
     });
   }
 

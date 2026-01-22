@@ -48,6 +48,40 @@ const createContactMessage = async (messageData) => {
   }
 };
 
+const getAllMessages = async () => {
+  try {
+    console.log(`[${new Date().toISOString()}] [INFO] Retrieving all messages from database`);
+
+    const messages = await Message.find()
+      .select('dateCreated subject email message status userId _id')
+      .sort({ dateCreated: -1 })
+      .lean();
+
+    const formattedMessages = messages.map(msg => ({
+      messageId: msg._id.toString(),
+      email: msg.email,
+      subject: msg.subject,
+      message: msg.message,
+      userId: msg.userId,
+      status: msg.status,
+      dateCreated: msg.dateCreated
+    }));
+
+    console.log(`[${new Date().toISOString()}] [INFO] Retrieved ${formattedMessages.length} messages successfully`);
+    
+    return formattedMessages;
+  } catch (error) {
+    if (error.name === 'MongoServerError' || error.name === 'MongooseError') {
+      console.error(`[${new Date().toISOString()}] [ERROR] Database error while retrieving messages - Error: ${error.message}`);
+      throw new DatabaseConnectionError('Failed to retrieve messages from database');
+    }
+    
+    console.error(`[${new Date().toISOString()}] [ERROR] Unexpected error in getAllMessages - Error: ${error.message}`);
+    throw error;
+  }
+};
+
 module.exports = {
-  createContactMessage
+  createContactMessage,
+  getAllMessages
 };

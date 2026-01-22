@@ -25,6 +25,25 @@ const createContactMessage = async (req, res, next) => {
   }
 };
 
+const getAllMessages = async (req, res, next) => {
+  try {
+    const adminUserId = req.user ? req.user.userId : null;
+    const adminUserType = req.user ? req.user.userType : 'Unknown';
+    const ipAddress = req.ip || req.connection.remoteAddress;
+
+    console.log(`[${new Date().toISOString()}] [INFO] GET /messages request received - Admin UserId: ${adminUserId || 'N/A'}, UserType: ${adminUserType}, IP: ${ipAddress}`);
+
+    const messages = await messageService.getAllMessages();
+
+    console.log(`[${new Date().toISOString()}] [INFO] GET /messages response sent - Status: 200, Count: ${messages.length}, Admin UserId: ${adminUserId || 'N/A'}`);
+    res.status(200).json(messages);
+  } catch (error) {
+    console.error(`[${new Date().toISOString()}] [ERROR] GET /messages failed - Admin UserId: ${req.user ? req.user.userId : 'N/A'}, Error: ${error.message}`);
+    next(error);
+  }
+};
+
 module.exports = {
-  createContactMessage
+  createContactMessage,
+  getAllMessages
 };
