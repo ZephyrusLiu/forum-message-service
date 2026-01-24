@@ -1,5 +1,6 @@
 const Message = require('../models/message.model');
-const { ValidationError, DatabaseConnectionError } = require('../utils/customErrors');
+const mongoose = require('mongoose');
+const { ValidationError, DatabaseConnectionError, NotFoundError } = require('../utils/customErrors');
 const { publishContactCreatedEvent } = require('../utils/messagePublisher');
 
 const createContactMessage = async (messageData) => {
@@ -96,7 +97,62 @@ const getAllMessages = async () => {
   }
 };
 
+const updateMessageStatus = async (messageId, newStatus) => {
+  try {
+    if (!messageId || typeof messageId !== 'string') {
+      throw new ValidationError('MessageId is required');
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(messageId)) {
+      throw new ValidationError('Invalid messageId format');
+    }
+
+    console.log(`[${new Date().toISOString()}] [INFO] Updating message status - MessageId: ${messageId}, NewStatus: ${newStatus}`);
+
+    const message = await Message.findById(messageId);
+
+    if (!message) {
+      console.log(`[${new Date().toISOString()}] [WARN] Message not found - MessageId: ${messageId}`);
+      throw new NotFoundError('Message not found');
+    }
+
+    const oldStatus = message.status;
+    message.status = newStatus;
+    const updatedMessage = await message.save();
+
+    console.log(`[${new Date().toISOString()}] [INFO] Message status updated successfully - MessageId: ${messageId}, OldStatus: ${oldStatus}, NewStatus: ${newStatus}`);
+
+    return {
+      messageId: updatedMessage._id.toString(),
+      email: updatedMessage.email,
+      subject: updatedMessage.subject,
+      message: updatedMessage.message,
+      userId: updatedMessage.userId,
+      status: updatedMessage.status,
+      dateCreated: updatedMessage.dateCreated
+    };
+  } catch (error) {
+    if (error instanceof NotFoundError || error instanceof ValidationError) {
+      throw error;
+    }
+
+    if (error.name === 'CastError') {
+      console.error(`[${new Date().toISOString()}] [ERROR] Invalid messageId format - MessageId: ${messageId}`);
+      throw new ValidationError('Invalid messageId format');
+    }
+
+    if (error.name === 'MongoServerError' || error.name === 'MongooseError') {
+      console.error(`[${new Date().toISOString()}] [ERROR] Database error while updating message - MessageId: ${messageId}, Error: ${error.message}`);
+      throw new DatabaseConnectionError('Failed to update message in database');
+    }
+
+    console.error(`[${new Date().toISOString()}] [ERROR] Unexpected error in updateMessageStatus - MessageId: ${messageId}, Error: ${error.message}`);
+    throw error;
+  }
+};
+
 module.exports = {
   createContactMessage,
-  getAllMessages
+  getAllMessages,
+  updateMessageStatus
 };

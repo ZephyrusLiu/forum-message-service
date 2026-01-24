@@ -43,7 +43,28 @@ const getAllMessages = async (req, res, next) => {
   }
 };
 
+const updateMessageStatus = async (req, res, next) => {
+  try {
+    const { messageId } = req.params;
+    const { status } = req.body;
+    const adminUserId = req.user ? req.user.userId : null;
+    const adminUserType = req.user ? req.user.userType : 'Unknown';
+    const ipAddress = req.ip || req.connection.remoteAddress;
+
+    console.log(`[${new Date().toISOString()}] [INFO] PUT /messages/:messageId request received - Admin UserId: ${adminUserId || 'N/A'}, UserType: ${adminUserType}, MessageId: ${messageId}, NewStatus: ${status}, IP: ${ipAddress}`);
+
+    const updatedMessage = await messageService.updateMessageStatus(messageId, status);
+
+    console.log(`[${new Date().toISOString()}] [INFO] PUT /messages/:messageId response sent - Status: 200, MessageId: ${messageId}, Admin UserId: ${adminUserId || 'N/A'}`);
+    res.status(200).json(updatedMessage);
+  } catch (error) {
+    console.error(`[${new Date().toISOString()}] [ERROR] PUT /messages/:messageId failed - MessageId: ${req.params.messageId || 'N/A'}, Admin UserId: ${req.user ? req.user.userId : 'N/A'}, Error: ${error.message}`);
+    next(error);
+  }
+};
+
 module.exports = {
   createContactMessage,
-  getAllMessages
+  getAllMessages,
+  updateMessageStatus
 };
