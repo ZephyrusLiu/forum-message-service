@@ -1,8 +1,20 @@
 const { DatabaseConnectionError, ValidationError, NotFoundError, UnauthorizedError, ForbiddenError } = require('../utils/customErrors');
+const { RErrorMessage, _getCodeMessage } = require('../../../utils/javascript/message');
 
 const errorHandler = (err, req, res, next) => {
   let error = { ...err };
   error.message = err.message;
+
+  // Add JWT error handling
+  if (err.name === 'TokenExpiredError') {
+    const message = 'Token expired';
+    error = new UnauthorizedError(message);
+  }
+
+  if (err.name === 'JsonWebTokenError') {
+    const message = 'Invalid token';
+    error = new UnauthorizedError(message);
+  }
 
   if (err instanceof SyntaxError || err.name === 'SyntaxError') {
     const message = 'Invalid JSON format in request body';
@@ -25,63 +37,53 @@ const errorHandler = (err, req, res, next) => {
     error = new ValidationError(message);
   }
 
+  // Use RErrorMessage utility for consistent error formatting
   if (error instanceof DatabaseConnectionError || err instanceof DatabaseConnectionError) {
     const dbError = error instanceof DatabaseConnectionError ? error : err;
     console.error(`[${new Date().toISOString()}] [ERROR] DatabaseConnectionError - Status: ${dbError.statusCode}, Message: ${dbError.message}`);
-    return res.status(dbError.statusCode).json({
-      error: 'Database Error',
-      message: dbError.message,
-      status: dbError.statusCode
-    });
+    const errorResponse = new RErrorMessage(dbError.message, dbError.statusCode);
+    const [json, status] = errorResponse.get();
+    return res.status(status).json(json);
   }
 
   if (error instanceof ValidationError || err instanceof ValidationError) {
     const validationError = error instanceof ValidationError ? error : err;
     console.log(`[${new Date().toISOString()}] [WARN] ValidationError - Status: ${validationError.statusCode}, Message: ${validationError.message}`);
-    return res.status(validationError.statusCode).json({
-      error: 'Validation Failed',
-      message: validationError.message,
-      status: validationError.statusCode
-    });
+    const errorResponse = new RErrorMessage(validationError.message, validationError.statusCode);
+    const [json, status] = errorResponse.get();
+    return res.status(status).json(json);
   }
 
   if (error instanceof NotFoundError || err instanceof NotFoundError) {
     const notFoundError = error instanceof NotFoundError ? error : err;
     console.log(`[${new Date().toISOString()}] [WARN] NotFoundError - Status: ${notFoundError.statusCode}, Message: ${notFoundError.message}`);
-    return res.status(notFoundError.statusCode).json({
-      error: 'Not Found',
-      message: notFoundError.message,
-      status: notFoundError.statusCode
-    });
+    const errorResponse = new RErrorMessage(notFoundError.message, notFoundError.statusCode);
+    const [json, status] = errorResponse.get();
+    return res.status(status).json(json);
   }
 
   if (error instanceof UnauthorizedError || err instanceof UnauthorizedError) {
     const unauthorizedError = error instanceof UnauthorizedError ? error : err;
     console.log(`[${new Date().toISOString()}] [WARN] UnauthorizedError - Status: ${unauthorizedError.statusCode}, Message: ${unauthorizedError.message}`);
-    return res.status(unauthorizedError.statusCode).json({
-      error: 'Unauthorized',
-      message: unauthorizedError.message,
-      status: unauthorizedError.statusCode
-    });
+    const errorResponse = new RErrorMessage(unauthorizedError.message, unauthorizedError.statusCode);
+    const [json, status] = errorResponse.get();
+    return res.status(status).json(json);
   }
 
   if (error instanceof ForbiddenError || err instanceof ForbiddenError) {
     const forbiddenError = error instanceof ForbiddenError ? error : err;
     console.log(`[${new Date().toISOString()}] [WARN] ForbiddenError - Status: ${forbiddenError.statusCode}, Message: ${forbiddenError.message}`);
-    return res.status(forbiddenError.statusCode).json({
-      error: 'Forbidden',
-      message: forbiddenError.message,
-      status: forbiddenError.statusCode
-    });
+    const errorResponse = new RErrorMessage(forbiddenError.message, forbiddenError.statusCode);
+    const [json, status] = errorResponse.get();
+    return res.status(status).json(json);
   }
 
+  // Unhandled errors
   console.error(`[${new Date().toISOString()}] [ERROR] Unhandled error - Status: ${error.statusCode || 500}, Message: ${error.message || 'An unexpected error occurred'}, Stack: ${err.stack}`);
-
-  res.status(error.statusCode || 500).json({
-    error: 'Server Error',
-    message: error.message || 'An unexpected error occurred',
-    status: error.statusCode || 500
-  });
+  const statusCode = error.statusCode || 500;
+  const errorResponse = new RErrorMessage(error.message || 'An unexpected error occurred', statusCode);
+  const [json, status] = errorResponse.get();
+  return res.status(status).json(json);
 };
 
 module.exports = errorHandler;
