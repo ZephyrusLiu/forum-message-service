@@ -1,3 +1,8 @@
+/**
+ * @deprecated This middleware is deprecated in favor of JWT authentication.
+ * Use authenticateJWT + requireAdmin instead.
+ * This file is kept for reference only.
+ */
 const { UnauthorizedError, ForbiddenError } = require('../utils/customErrors');
 
 const checkAdminPermission = (req, res, next) => {

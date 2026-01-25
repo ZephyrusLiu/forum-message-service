@@ -10,7 +10,8 @@ Message service for the forum application that handles contact us functionality,
 - RabbitMQ (CloudAMQP) producer for contact.created events
 - Global error handling (AOP)
 - Health check endpoint
-- Admin authorization via X-User-Type header
+- JWT Bearer token authentication
+- Role-based authorization (admin/super)
 
 ## Prerequisites
 
@@ -39,8 +40,12 @@ npm install
    MONGODB_URI=mongodb+srv://<username>:<password>@<cluster-url>/message_db?retryWrites=true&w=majority
    RABBITMQ_URI=amqps://<username>:<password>@<host>/<vhost>
    PORT=5002
+   JWT_SECRET=your-secret-key-minimum-32-characters-long
+   JWT_ALG=HS256
    ```
    - `RABBITMQ_URI`: CloudAMQP or RabbitMQ connection string. If omitted or invalid, the service starts without MQ; contact messages are still saved to MongoDB.
+   - `JWT_SECRET`: Secret key for JWT token verification (required, minimum 32 characters)
+   - `JWT_ALG`: JWT algorithm (default: HS256)
 
 ## Running the Service
 
@@ -75,7 +80,7 @@ Returns the service health status and database connection state.
 ```
 
 ### Contact Us
-**POST** `/message-service/contactus`
+**POST** `/contactus`
 
 Creates a new contact message. This endpoint is accessible to visitors (no JWT authentication required).
 
@@ -123,12 +128,17 @@ Creates a new contact message. This endpoint is accessible to visitors (no JWT a
 All error responses follow the unified error format: `{ error, message, status }`.
 
 ### Get Messages (Admin)
-**GET** `/message-service/messages`
+**GET** `/messages`
 
-Returns all contact messages. Requires admin authorization via `X-User-Type` header (Admin or Super Admin). Used by the Message Management page.
+Returns all contact messages. Requires JWT authentication with admin or super role. Used by the Message Management page.
 
 **Required Headers:**
-- `X-User-Type`: `Admin` or `Super Admin` (case-insensitive)
+- `Authorization`: `Bearer <jwt-token>`
+
+**JWT Claims Required:**
+- `sub` or `id`: User ID (required)
+- `type`: User role - "admin" or "super" (required for this endpoint)
+- `status`: User account status - "unverified", "active", or "banned"
 
 **Success Response (200 OK):**
 ```json
@@ -146,8 +156,93 @@ Returns all contact messages. Requires admin authorization via `X-User-Type` hea
 ```
 
 **Error Responses:**
-- `401 Unauthorized`: Missing or invalid `X-User-Type` header
-- `403 Forbidden`: User type is not Admin or Super Admin
+- `401 Unauthorized`: Missing Bearer token, token expired, invalid token, token missing sub/id, or invalid status claim
+- `403 Forbidden`: User is banned or insufficient permissions (non-admin role)
+
+### Update Message Status (Admin)
+**PUT** `/messages/:messageId`
+
+Updates the status of a specific message (Open/Closed). Requires JWT authentication with admin or super role.
+
+**Required Headers:**
+- `Authorization`: `Bearer <jwt-token>`
+
+**URL Parameters:**
+- `messageId`: MongoDB ObjectId of the message to update
+
+**Request Body:**
+```json
+{
+  "status": "Closed"
+}
+```
+
+**JWT Claims Required:**
+- `sub` or `id`: User ID (required)
+- `type`: User role - "admin" or "super" (required for this endpoint)
+- `status`: User account status - "unverified", "active", or "banned"
+
+**Success Response (200 OK):**
+```json
+{
+  "messageId": "507f1f77bcf86cd799439011",
+  "email": "user@example.com",
+  "subject": "Ban appeal",
+  "message": "I would like to appeal...",
+  "userId": 123,
+  "status": "Closed",
+  "dateCreated": "2026-01-20T12:00:00.000Z"
+}
+```
+
+**Error Responses:**
+- `400 Bad Request`: Invalid status value (must be "Open" or "Closed") or invalid messageId format
+- `401 Unauthorized`: Missing Bearer token, token expired, invalid token, token missing sub/id, or invalid status claim
+- `403 Forbidden`: User is banned or insufficient permissions (non-admin role)
+- `404 Not Found`: Message not found
+
+## Authentication
+
+### JWT Bearer Token Authentication
+
+Protected endpoints require JWT Bearer token authentication:
+
+```http
+Authorization: Bearer <jwt-token>
+```
+
+### JWT Claims Structure
+
+- `sub` or `id`: User ID (required)
+- `type`: User role - "user", "admin", or "super"
+- `status`: User account status - "unverified", "active", or "banned"
+
+### Normalized `req.user` Object
+
+After successful authentication, the request object includes a normalized user object:
+
+```javascript
+{
+  userId: "123",           // string (from sub or id claim)
+  role: "admin",           // "user" | "admin" | "super" (lowercase)
+  status: "active",        // "unverified" | "active" | "banned" (lowercase)
+  verified: true,          // boolean (true if status !== "unverified")
+  // ... all other JWT claims
+}
+```
+
+### Authentication Errors (401)
+
+- Missing Bearer token
+- Token expired
+- Invalid token
+- Token missing sub/id claim
+- Invalid status claim
+
+### Authorization Errors (403)
+
+- User is banned (even with valid token)
+- Insufficient permissions (non-admin accessing admin endpoints)
 
 ## RabbitMQ (Message Queue)
 
@@ -179,7 +274,10 @@ forum-message-service/
 │   ├── middlewares/
 │   │   ├── errorHandler.js      # Global error handler (AOP)
 │   │   ├── validateContactMessage.js # Contact us validation
-│   │   └── checkAdminPermission.js   # Admin authorization
+│   │   ├── validateStatusUpdate.js   # Status update validation
+│   │   ├── authenticateJWT.js   # JWT authentication middleware
+│   │   ├── requireAdmin.js      # Admin role authorization
+│   │   └── checkAdminPermission.js   # Deprecated: header-based auth (kept for reference)
 │   ├── utils/
 │   │   ├── customErrors.js      # Custom exception classes
 │   │   └── messagePublisher.js  # RabbitMQ publish helper
@@ -210,8 +308,9 @@ The service implements a global error handler (AOP) that handles:
 - `DatabaseConnectionError`: Database connection failures (503)
 - `ValidationError`: Input validation errors (400)
 - `NotFoundError`: Resource not found errors (404)
-- `UnauthorizedError`: Missing or invalid authentication (401)
-- `ForbiddenError`: Insufficient permissions (403)
+- `UnauthorizedError`: Missing or invalid authentication, expired tokens, invalid JWT (401)
+- `ForbiddenError`: Insufficient permissions, banned users (403)
+- JWT errors: `TokenExpiredError`, `JsonWebTokenError`
 - Mongoose validation errors
 - MongoDB duplicate key errors
 - JSON parse errors (SyntaxError)
@@ -228,14 +327,19 @@ All errors use the unified format `{ error, message, status }` and are logged wi
 
 ## Security
 
-- **Contact Us**: Public; no JWT required.
-- **Get Messages**: Requires `X-User-Type: Admin` or `Super Admin` (forwarded by API Gateway from JWT claims).
-- **Admin endpoints**: Protected by `checkAdminPermission` middleware using `X-User-Type` header.
+- **Contact Us**: Public endpoint; no JWT authentication required.
+- **Get Messages**: Requires JWT Bearer token with admin or super role.
+- **Update Message Status**: Requires JWT Bearer token with admin or super role.
+- **JWT Validation**: All protected endpoints validate JWT signature, expiration, and required claims.
+- **Role-Based Access**: Admin endpoints use `authenticateJWT` + `requireAdmin` middleware chain.
+- **Banned Users**: Users with `status: "banned"` are blocked even with valid tokens.
+- **JWT_SECRET**: Must be strong (minimum 32 characters) and kept secure.
 
 ## Future Enhancements
 
-- PATCH /messages/:id for status updates (Open/Closed)
 - Pagination and filtering for GET /messages
 - Health check includes RabbitMQ connection status
 - Dead letter queue for failed MQ publishes
 - Custom decorators for login_required, permission_checking, and logging
+- Token refresh mechanism
+- Rate limiting for authentication endpoints
